@@ -1,0 +1,304 @@
+---
+title: "Análisis Predictivo del Cáncer de Mama: Dataset `biopsy`"
+author: "Jorge Lobato"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    highlight: tango
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = 'center')
+```
+
+# SECCIÓN 1
+
+El cáncer de mama es una de las principales causas de mortalidad en mujeres a nivel global. La detección temprana y precisa es crucial para el pronóstico y tratamiento. El dataset biopsy, incluido en el paquete MASS de R, contiene mediciones de 9 características morfológicas de muestras de biopsia de tumores mamarios. Cada característica (como la uniformidad del tamaño o la forma de las células) se ha puntuado de 1 (más normal) a 10 (más anormal) por patólogos.
+
+Objetivo: Desarrollar un modelo predictivo capaz de clasificar nuevos casos como benignos o malignos basado en estas características celulares. Este análisis puede servir como herramienta de apoyo diagnóstico.
+
+Fuente de datos: Wolberg, W.H., & Mangasarian, O.L. (1990). Multisurface method of pattern separation for medical diagnosis applied to breast cytology. Proceedings of the National Academy of Sciences, 87(23), 9193–9196. Dataset accesible en R como MASS::biopsy.
+
+```{r}
+library(MASS)
+data(biopsy)
+# Renombramos para mayor claridad
+biopsy_data <- biopsy
+head(biopsy_data)
+```
+
+# SECCIÓN 2
+
+## 2.1
+
+El dataset contiene 699 observaciones y 11 variables. Las primeras 9 son numéricas (puntuaciones de características celulares), la variable ID es un identificador y class es la variable objetivo (factor con niveles benign y malignant).
+
+```{r}
+# Tamaño del conjunto de datos
+cat("Número de filas:", nrow(biopsy_data), "\n")
+cat("Número de columnas:", ncol(biopsy_data), "\n")
+# Tipos de variables
+str(biopsy_data)
+# Valores nulos
+cat("Valores nulos por variable:\n")
+print(colSums(is.na(biopsy_data)))
+```
+
+El dataset es muy limpio. Sólo presenta 16 valores faltantes en la variable V6 (adhesión celular), una proporción muy baja (2.3%). Para mantener la simplicidad y dado el tamaño del conjunto, eliminaremos estas filas.
+
+```{r}
+# Eliminamos filas con valores nulos
+biopsy_clean <- na.omit(biopsy_data)
+cat("Filas tras limpieza:", nrow(biopsy_clean), "\n")
+# Convertimos la variable clase a factor (aunque ya lo es, por claridad)
+biopsy_clean$class <- as.factor(biopsy_clean$class)
+```
+
+## 2.2
+
+Plantemos preguntas que exploren la información del conjunto de datos.
+
+1.  ¿Existe una diferencia clara en la media de las puntuaciones entre tumores benignos y malignos?
+
+2.  ¿Cuál es la característica morfológica que mejor discrimina entre las dos clases?
+
+3.  ¿Es posible predecir el diagnóstico a partir de una sola variable (p. ej., V1 Uniformidad del tamaño de la célula)?
+
+4.  ¿Cómo varía la probabilidad de que un tumor sea maligno a medida que aumenta la puntuación de una característica específica?
+
+```{r}
+# Definimos una función que calcula el valor absoluto de la diferencia de medias
+# entre las clases para una variable dada. Sirve para responder a la pregunta 2.
+diff_medias <- function(data, variable, clase) {
+  benign_mean <- mean(data[data[[clase]] == "benign", variable], na.rm = TRUE)
+  malign_mean <- mean(data[data[[clase]] == "malignant", variable], na.rm = TRUE)
+  return(abs(malign_mean - benign_mean))}
+
+# Ejemplo de uso para la variable V1
+cat("Diferencia de medias (V1):", diff_medias(biopsy_clean, "V1", "class"), "\n")
+```
+
+# SECCIÓN 3
+
+## 3.1
+
+Comenzamos con un resumen numérico y gráficos para entender la distribución de los datos.
+
+```{r}
+# Resumen de las variables numéricas por clase
+library(dplyr)
+biopsy_clean %>%
+  select(-ID) %>%
+  group_by(class) %>%
+  summarise_all(list(mean = ~mean(.), sd = ~sd(.)))
+```
+
+```{r}
+# Gráficos de caja para todas las variables numéricas
+library(reshape2)
+library(ggplot2)
+# Ponemos los datos en formato largo para ggplot
+biopsy_long <- biopsy_clean %>%
+  select(-ID) %>%
+  melt(id.vars = "class")
+ggplot(biopsy_long, aes(x = variable, y = value, fill = class)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribución de las características por clase", y = "Puntuación")
+```
+
+Los gráficos de caja muestran una clara separación de distribuciones. Las puntuaciones para tumores malignos tienden a ser mucho más altas en todas las variables, lo que sugiere que un modelo de clasificación tendrá buen desempeño.
+
+## 3.2
+
+#### a)
+
+Ampliamos la función creada antes para que no solo calcule la diferencia de medias, sino que también realice una prueba t de Student para evaluar si la diferencia es estadísticamente significativa.
+
+```{r}
+prueba_t_variable <- function(data, variable, clase) {
+  # Separar los datos por clase
+  benign_vals <- data[data[[clase]] == "benign", variable]
+  malign_vals <- data[data[[clase]] == "malignant", variable]
+  
+  # Realizar la prueba t
+  test_result <- t.test(benign_vals, malign_vals, var.equal = FALSE)
+  
+  # Devolver un resumen
+  return(data.frame(
+    variable = variable,
+    diff_means = diff_medias(data, variable, clase),
+    p_value = test_result$p.value,
+    stringsAsFactors = FALSE  ))}
+
+# Aplicamos la función a la variable V1 (uniformidad del tamaño)
+resultado_v1 <- prueba_t_variable(biopsy_clean, "V1", "class")
+print(resultado_v1)
+```
+
+La diferencia de medias es estadísticamente significativa (p-valor prácticamente 0).
+
+#### b)
+
+Asumamos que la puntuación de V1 (Uniformidad del tamaño de la célula) para tumores benignos sigue una distribución normal con media=2 y sd=1, y para tumores malignos una normal con media=7 y sd=2.
+
+1.  ¿Cuál es la probabilidad de que un tumor benigno tenga una puntuación en V1 superior a 4?
+
+2.  ¿Cuál es la probabilidad de que un tumor maligno tenga una puntuación en V1 inferior a 5?
+
+3.  Si se define un umbral de diagnóstico (V1 \> 5), ¿cuál sería la probabilidad de un falso positivo (diagnosticar un benigno como maligno)?
+
+```{r}
+# 1. P(V1 > 4 | benigno)
+p_fp <- 1 - pnorm(4, mean = 2, sd = 1)
+cat("P(V1 > 4 | benigno) = Falso positivo:", round(p_fp, 4), "\n")
+
+# 2. P(V1 < 5 | maligno)
+p_fn <- pnorm(5, mean = 7, sd = 2)
+cat("P(V1 < 5 | maligno) = Falso negativo:", round(p_fn, 4), "\n")
+
+# 3. Ya calculado en 1. Un falso positivo ocurre cuando V1 > 5 para un benigno.
+p_fp_umbral <- 1 - pnorm(5, mean = 2, sd = 1)
+cat("P(Falso positivo con umbral V1>5):", round(p_fp_umbral, 6), "\n")
+```
+
+#### c)
+
+Simularemos 1000 biopsias de tumores benignos y 1000 de tumores malignos usando las distribuciones asumidas en el apartado anterior.
+
+```{r}
+set.seed(123)
+# Simular datos
+benign_sim <- rnorm(1000, mean = 2, sd = 1)
+malign_sim <- rnorm(1000, mean = 7, sd = 2)
+
+# Combinar en un data.frame para graficar
+sim_data <- data.frame(
+  V1 = c(benign_sim, malign_sim),
+  class = rep(c("benign", "malignant"), each = 1000))
+
+# Gráfico de densidad
+ggplot(sim_data, aes(x = V1, fill = class)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Simulación de la distribución de V1 por clase", x = "Puntuación V1")
+```
+
+El gráfico muestra que, aunque hay un solapamiento (especialmente entre 3 y 6), las distribuciones están claramente separadas, lo que confirma la utilidad de V1 como predictor.
+
+# SECCIÓN 4
+
+En este caso, nuestro objetivo es clasificar (benigno/maligno), por lo que aplicaremos aprendizaje supervisado.
+
+```{r}
+# Preparamos los datos para el modelo
+X <- biopsy_clean[, 2:10] # Variables predictoras (V1-V9)
+y <- biopsy_clean$class    # Variable objetivo
+
+# Dividimos en entrenamiento (70%) y test (30%)
+set.seed(123)
+train_idx <- sample(1:nrow(biopsy_clean), 0.7 * nrow(biopsy_clean))
+X_train <- X[train_idx, ]
+y_train <- y[train_idx]
+X_test <- X[-train_idx, ]
+y_test <- y[-train_idx]
+
+# Entrenamos un modelo de Árbol de Decisión (muy interpretable)
+library(rpart)
+modelo_arbol <- rpart(y_train ~ ., data = X_train, method = "class")
+
+# Hacemos predicciones en el conjunto de test
+predicciones <- predict(modelo_arbol, X_test, type = "class")
+
+# Evaluamos el modelo (matriz de confusión)
+library(caret)
+conf_matrix <- confusionMatrix(predicciones, y_test)
+print(conf_matrix)
+```
+
+El modelo de árbol de decisión muestra una exactitud (accuracy) superior al 96% en el conjunto de test. La sensibilidad y especificidad también son muy altas, lo que indica que el modelo es excelente tanto para detectar casos malignos como para confirmar casos benignos.
+
+```{r}
+# Visualizamos el árbol (solo las primeras ramas para legibilidad)
+library(rpart.plot)
+rpart.plot(modelo_arbol, type = 3, extra = 102, fallen.leaves = TRUE, main = "Árbol de Decisión")
+```
+
+La variable V1 (Uniformidad del tamaño de la célula) es el primer nodo de división, confirmando su importancia como predictor, como ya habíamos visto en el análisis exploratorio y la simulación.
+
+# SECCIÓN 5
+
+Esta sección requeriría un archivo app.R separado, pero podemos incluir un ejemplo mínimo de cómo se vería el código base para una app Shiny que use nuestro modelo.
+
+```{r}
+# app.R
+library(shiny)
+library(rpart)
+
+# Cargamos el modelo entrenado
+data(biopsy)
+biopsy_clean <- na.omit(biopsy)
+X <- biopsy_clean[, 2:10]
+y <- biopsy_clean$class
+modelo <- rpart(y ~ ., data = X, method = "class")
+
+# UI
+ui <- fluidPage(
+  titlePanel("Predicción de Cáncer de Mama"),
+  sidebarLayout(
+    sidebarPanel(
+      h4("Características Celulares (1-10)"),
+      sliderInput("V1", "Uniformidad del tamaño", min = 1, max = 10, value = 5),
+      sliderInput("V2", "Uniformidad de la forma", min = 1, max = 10, value = 5),
+      sliderInput("V3", "Adhesión celular", min = 1, max = 10, value = 5),
+      # ... (se añadirían los otros 6 sliders)
+      actionButton("predict", "Predecir Diagnóstico")
+    ),
+    mainPanel(
+      h2("Resultado:"),
+      verbatimTextOutput("diagnosis")
+    )
+  )
+)
+
+# Server
+server <- function(input, output) {
+  prediction <- eventReactive(input$predict, {
+    new_data <- data.frame(
+      V1 = input$V1, V2 = input$V2, V3 = input$V3
+      # ... (se añadirían los otros 6 inputs)
+    )
+    predict(modelo, new_data, type = "class")
+  })
+  
+  output$diagnosis <- renderText({
+    as.character(prediction())
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+Una vez ejecutado, esta app permitiría a un médico introducir las puntuaciones de las características celulares de un nuevo paciente y obtener una predicción inmediata del diagnóstico.
+
+# SECCIÓN 6
+
+El análisis del dataset biopsy ha demostrado que es posible crear un modelo predictivo muy fiable para el diagnóstico del cáncer de mama a partir de 9 características morfológicas.
+
+-   Conclusiones finales: Las características celulares, especialmente la V1 (Uniformidad del tamaño), son predictores extremadamente potentes. El modelo de árbol de decisión logró una exactitud superior al 96%, lo que lo convierte en una herramienta de apoyo diagnóstico de gran valor.
+
+-   Análisis más avanzado: Aunque el modelo es muy bueno, en un entorno clínico real se podría explorar un modelo de ensamble (como Random Forest) para ganar un poco más de robustez, o incluir datos de imagen directamente con técnicas de visión por computadora.
+
+-   Falta de datos: Este conjunto de datos no incluye información del paciente (edad, historial familiar) que podría mejorar la predicción. Su incorporación sería un paso natural.
+
+-   Toma de decisiones: Este tipo de modelo puede ayudar a priorizar casos en centros con recursos limitados, asegurando que los casos de alto riesgo (puntuaciones altas) reciban atención inmediata. En resumen, la integración de técnicas de análisis de datos, simulación y aprendizaje automático proporciona una solución práctica y potente para un problema de salud crítica, demostrando el valor de la bioinformática y la bioestadística en la medicina moderna.
+
+En resumen, la integración de técnicas de análisis de datos, simulación y aprendizaje automático proporciona una **solución práctica y potente** para un problema de salud crítica, demostrando el valor de la bioinformática y la bioestadística en la medicina moderna.

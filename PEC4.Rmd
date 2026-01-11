@@ -1,0 +1,124 @@
+---
+title: "PEC4"
+author: "Mario Hervás Gómez y Jorge Lobato Menéndez"
+date: "`r Sys.Date()`"
+keywords: ["Análisis de Datos", "RMarkdown", "Interactivo"]
+lang: es
+output:
+  rmdformats::downcute:
+    self_contained: yes
+    thumbnails: no
+    downcute_theme: "chaos"
+    lightbox: yes
+    gallery: yes
+    highlight: tango
+    embed_fonts: yes
+---
+
+```{=html}
+<style>
+
+body {
+  font-family: 'Arial', sans-serif;
+  background-color: #E0F8E0;
+} 
+
+h1 {
+  color: #000080;
+  font-size: 2em;
+}
+
+h2 {
+  color: #000000;
+  font-size: 1.75em;
+}
+
+h3 {
+  color: #2C2C2C;
+  font-size: 1em;
+} 
+
+p {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.table {
+  width: 100%;
+  margin-bottom: 1rem;
+  color: #212529;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.75rem;
+  vertical-align: top;
+  border-top: 1px solid #dee2e6;
+}
+
+.table thead th {
+  vertical-align: bottom;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.table tbody + tbody {
+  border-top: 2px solid #dee2e6;
+}
+
+code {
+  background-color: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Librerias
+
+```{r}
+
+```
+
+# Sección 1. Contexto y objetivo del estudio
+
+# Sección 2. Prospección y preparación de los datos 
+## **2.1 Descripción de los datos**
+
+```{r} 
+## Descarga de datos 
+download.file(url = "https://hbiostat.org/data/repo/gbsg_ba_ca.dat", destfile = "gbsg_ba_ca.dat")
+
+## Carga de datos 
+data <- gbsg <- read.table("gbsg_ba_ca.dat", header = TRUE)
+
+## Descripción y transformación inicial de los datos 
+str(data)
+
+## Valores nulos 
+sum(is.na(data))
+
+## Conversión de variables a factor 
+data$meno   <- factor(tolower(data$meno))
+data$hormon <- factor(data$hormon)
+data$grade <- factor(data$grade)
+
+## Variables redundantes 
+all(data$X_d == data$censrec)
+
+## Variables que no aportan información relevante
+all(data$X_st == 1)
+all(data$X_t0 == 0)
+
+## Eliminación de variables prescindibles 
+data <- subset(data, select = -c(gradd1, gradd2, X_d))
+```
+
+#### El conjunto de datos analizado consta de 686 observaciones y 18 variables, correspondientes a pacientes con cáncer de mama. Las variables recogen información demográfica, clínica y de seguimiento, incluyendo la edad de las pacientes, características del tumor, tratamiento hormonal y el tiempo transcurrido hasta la recurrencia del evento o hasta la censura. El conjunto de datos incluye variables de distinta naturaleza: las variables cuantitativas son age, size, nodes, enodes, pgr, er, rectime y X_t, que representan medidas numéricas asociadas a características clínicas y al tiempo de seguimiento. Las variables categóricas son meno, hormon y grade, que describen el estado menopáusico, el tratamiento hormonal recibido y el grado histológico del tumor, respectivamente. La variable censrec es una variable binaria que indica la presencia o ausencia de recurrencia durante el seguimiento. Además, se incluyen variables técnicas relacionadas con la estructura temporal del seguimiento (X_st, X_t0).
+
+No se han detectado valores faltantes en ninguna de las variables, por lo que el conjunto de datos es completo y no requiere preprocesado adicional. Las variables categóricas meno, hormon y grade han sido tratadas como factores, reflejando correctamente su naturaleza cualitativa. Asimismo, se ha comprobado la existencia de variables redundantes asociadas a la codificación del grado tumoral (gradd1, gradd2) y al evento (X_d), que no aportan información adicional relevante y han sido eliminadas para simplificar el conjunto de datos. Del mismo modo, se observó que las variables X_t0 y X_st toman valores constantes (cero y uno, respectivamente), por lo que también se eliminaron.
+
+

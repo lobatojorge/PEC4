@@ -108,12 +108,17 @@ data$grade <- factor(data$grade)
 
 ## Variables redundantes 
 all(data$X_d == data$censrec)
+
+## Variables que no aportan información relevante
 all(data$X_st == 1)
 all(data$X_t0 == 0)
 
 ## Eliminación de variables prescindibles 
 data <- subset(data, select = -c(gradd1, gradd2, X_d))
 ```
-#### 
+
+#### El conjunto de datos analizado consta de 686 observaciones y 18 variables, correspondientes a pacientes con cáncer de mama. Las variables recogen información demográfica, clínica y de seguimiento, incluyendo la edad de las pacientes, características del tumor, tratamiento hormonal y el tiempo transcurrido hasta la recurrencia del evento o hasta la censura. El conjunto de datos incluye variables de distinta naturaleza: las variables cuantitativas son age, size, nodes, enodes, pgr, er, rectime y X_t, que representan medidas numéricas asociadas a características clínicas y al tiempo de seguimiento. Las variables categóricas son meno, hormon y grade, que describen el estado menopáusico, el tratamiento hormonal recibido y el grado histológico del tumor, respectivamente. La variable censrec es una variable binaria que indica la presencia o ausencia de recurrencia durante el seguimiento. Además, se incluyen variables técnicas relacionadas con la estructura temporal del seguimiento (X_st, X_t0).
+
+No se han detectado valores faltantes en ninguna de las variables, por lo que el conjunto de datos es completo y no requiere preprocesado adicional. Las variables categóricas meno, hormon y grade han sido tratadas como factores, reflejando correctamente su naturaleza cualitativa. Asimismo, se ha comprobado la existencia de variables redundantes asociadas a la codificación del grado tumoral (gradd1, gradd2) y al evento (X_d), que no aportan información adicional relevante y han sido eliminadas para simplificar el conjunto de datos. Del mismo modo, se observó que las variables X_t0 y X_st toman valores constantes (cero y uno, respectivamente), por lo que también se eliminaron.
 
 

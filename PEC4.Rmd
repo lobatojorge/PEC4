@@ -73,6 +73,7 @@ code {
 }
 </style>
 ```
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
@@ -80,15 +81,18 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 # Librerias
 
 ```{r}
-
+library(shiny)
+library(ggplot2)
+library(dplyr)
 ```
 
-# Sección 1. Contexto y objetivo del estudio
+# SECCIÓN 1. Contexto y objetivo del estudio
 
-# Sección 2. Prospección y preparación de los datos 
+# SECCIÓN 2. Prospección y preparación de los datos
+
 ## **2.1 Descripción de los datos**
 
-```{r} 
+```{r}
 ## Descarga de datos 
 download.file(url = "https://hbiostat.org/data/repo/gbsg_ba_ca.dat", destfile = "gbsg_ba_ca.dat")
 
@@ -97,10 +101,34 @@ data <- gbsg <- read.table("gbsg_ba_ca.dat", header = TRUE)
 
 ## Descripción y transformación inicial de los datos 
 str(data)
+summary(data)  # descripción de cada columna
+dim(data)
+```
 
+El conjunto de datos analizado proviene de un fichero de texto plano (.dat) y consta de 686 observaciones y 18 variables correspondientes a pacientes con cáncer de mama. La información recopilada es de carácter demográfico, clínico y de seguimiento, abarcando desde la edad y características del tumor hasta el tratamiento recibido y el tiempo transcurrido hasta la recurrencia o censura.
+
+Basándonos en su naturaleza, las variables se estructuran de la siguiente manera:
+
+-   Cuantitativas (Continuas y Discretas): Incluyen age (edad), size (tamaño en mm), nodes (conteo de ganglios afectados), enodes, pgr, er, rectime (días de seguimiento) y X_t.
+
+-   Cualitativas Nominales: id (identificador), meno (estado menopáusico) y hormon (tratamiento con tamoxifeno).
+
+-   Cualitativa Ordinal: grade (Grado histológico del tumor: 1, 2, 3).
+
+-   Dicotómicas/Binarias: censrec (0=censura, 1=evento/recurrencia).
+
+-   Variables Técnicas/Redundantes: gradd1, gradd2, X_d, X_st y X_t0.
+
+```{r}
 ## Valores nulos 
 sum(is.na(data))
+```
 
+Tras un análisis exploratorio, se confirma la **ausencia total de valores perdidos (NA)** en las 18 variables, por lo que el conjunto de datos es robusto y completo, no requiriendo técnicas de imputación.
+
+Se detectan columnas constantes que no aportan información al análisis: X_st (siempre es 1) y X_t0 (siempre es 0). Se recomienda eliminarlas. Transformaciones necesarias: Las variables meno y hormon vienen como texto (chr). Es imprescindible transformarlas a factores para realizar comparaciones estadísticas. Lo mismo aplica para grade y censrec
+
+```{r}
 ## Conversión de variables a factor 
 data$meno   <- factor(tolower(data$meno))
 data$hormon <- factor(data$hormon)
@@ -117,8 +145,269 @@ all(data$X_t0 == 0)
 data <- subset(data, select = -c(gradd1, gradd2, X_d))
 ```
 
-#### El conjunto de datos analizado consta de 686 observaciones y 18 variables, correspondientes a pacientes con cáncer de mama. Las variables recogen información demográfica, clínica y de seguimiento, incluyendo la edad de las pacientes, características del tumor, tratamiento hormonal y el tiempo transcurrido hasta la recurrencia del evento o hasta la censura. El conjunto de datos incluye variables de distinta naturaleza: las variables cuantitativas son age, size, nodes, enodes, pgr, er, rectime y X_t, que representan medidas numéricas asociadas a características clínicas y al tiempo de seguimiento. Las variables categóricas son meno, hormon y grade, que describen el estado menopáusico, el tratamiento hormonal recibido y el grado histológico del tumor, respectivamente. La variable censrec es una variable binaria que indica la presencia o ausencia de recurrencia durante el seguimiento. Además, se incluyen variables técnicas relacionadas con la estructura temporal del seguimiento (X_st, X_t0).
+###### **AÑADIR CAPTURAS DE PANTALLA DE CADA PASO Y TABLA (TIPOS VARIABLE)**
 
-No se han detectado valores faltantes en ninguna de las variables, por lo que el conjunto de datos es completo y no requiere preprocesado adicional. Las variables categóricas meno, hormon y grade han sido tratadas como factores, reflejando correctamente su naturaleza cualitativa. Asimismo, se ha comprobado la existencia de variables redundantes asociadas a la codificación del grado tumoral (gradd1, gradd2) y al evento (X_d), que no aportan información adicional relevante y han sido eliminadas para simplificar el conjunto de datos. Del mismo modo, se observó que las variables X_t0 y X_st toman valores constantes (cero y uno, respectivamente), por lo que también se eliminaron.
+## 2.2 Preguntas objetivo
 
+¿Existe una diferencia notable en la edad media y el tamaño del tumor entre las pacientes que recibieron tratamiento con tamoxifeno (hormon) y las que no? Objetivo: Comparar variables continuas según un factor categórico.
 
+¿Cuántas pacientes menores de 50 años tienen un número de ganglios afectados (nodes) superior a 5? Objetivo: Realizar una consulta basada en rangos numéricos múltiples (similar a las consultas de filtrado de la PEC1).
+
+¿Cómo se distribuyen los grados de agresividad del tumor (grade) entre aquellas pacientes que efectivamente sufrieron una recurrencia o muerte (censrec == 1)? Objetivo: Analizar la frecuencia de una variable ordinal en un subgrupo crítico
+
+¿Podemos clasificar a las pacientes en categorías de "Riesgo Clínico" (Alto/Bajo) basándonos en si cumplen simultáneamente tener un tumor grande (\>30mm) y más de 3 ganglios afectados? Objetivo: Aplicar la definición de funciones para automatizar la clasificación de datos (metodología del LAB3 y similar a la lógica vista en aplicaciones Shiny ).
+
+# SECCIÓN 3: Análisis descriptivo y gráfico
+
+## 3.1.
+
+### Análisis detallado de la variable 'age'
+
+```{r}
+mean_age <- mean(data$age)
+sd_age <- sd(data$age)
+range_age <- range(data$age)
+cat("Edad media:", mean_age, "\nDesviación típica:", sd_age, "\nRango:", range_age)
+```
+
+La edad media son $53.05$ años): Indica que la muestra se centra en mujeres en torno a la quinta década de vida. Es un dato coherente con la literatura médica sobre el cáncer de mama, donde la incidencia suele aumentar tras la menopausia. Desviación típica ($10.12$ años): Existe una dispersión moderada. Esto significa que la mayoría de las pacientes tienen edades comprendidas aproximadamente entre los $43$ y los $63$ años (media $\pm$ una desviación típica). No es un grupo excesivamente joven ni muy envejecido, sino bastante variado. Rango ($21$ a $80$ años): La amplitud es muy grande ($59$ años de diferencia). El estudio es inclusivo, ya que abarca desde adultos muy jóvenes hasta la tercera edad, lo que permite analizar cómo afecta la enfermedad en distintas etapas del ciclo vital.
+
+### GRÁFICAS
+
+```{r}
+if (!require("ggplot2")) install.packages("ggplot2")
+#### ----------  Histograma edad
+ggplot(data, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(title = "Distribución de la Edad", x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+```
+
+#comentario...
+
+#### Diagrama barras: grado del tumor
+
+```{r}
+ggplot(data, aes(x = grade, fill = grade)) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Pacientes por Grado de Tumor", x = "Grado", y = "Nº de Pacientes") +
+  theme_light()
+```
+
+#comentario...
+
+#### Boxplot: recurrencia vs Hormon
+
+```{r}
+ggplot(data, aes(x = hormon, y = rectime, fill = hormon)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Impacto del Tratamiento Hormonal en la Recurrencia",
+       x = "Tratamiento (Tamoxifeno)", y = "Días hasta recurrencia") +
+  theme_classic()
+```
+
+#comentario...
+
+#### Scatter plot: Tamaño vs
+
+```{r}
+ggplot(data, aes(x = size, y = nodes)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Relación Tamaño del Tumor y Ganglios Afectados",
+       x = "Tamaño (mm)", y = "Nº de Ganglios") +
+  theme_minimal()
+```
+
+#comentario...
+
+## 3.2.
+
+...
+
+# SECCIÓN 4: Modelos de aprendizaje automático
+
+Conviene realizar un enfoque mixto que combine ambos modelos porque la información que ofrecen es complementaria. El supervisado es conveniente porque disponemos de una variable objetivo etiquetada (censrec), que indica si la paciente sufrió recurrencia o fallecimiento. Podemos usarlo para entrenar un modelo a predecir este resultado en nuevas pacientes en función de sus características clínicas.
+
+El no supervisado es fundamental para el descubrimiento de patrones ocultos en los datos. Permite segmentar los pacientes en grupos con perfiles clínicos similares. Esto es clave para la personalización de tratamientos e identificación de grupos de riesgo
+
+La elección se justifica por la naturaleza del problema médico: - Predicción. para cuantificar el riesgo individual de cada paciente (supervisado); Exploración. para entender si existen subgrupos que requieran protocolos diferentes (no supervisado)
+
+## 4.1. APRENDIZAJE NO SUPERVISADO (K-means)
+
+#### Objetivo: Agrupar pacientes por similitud biológica
+
+1\. Selección y escalado de variables numéricas
+
+```{r}
+data_cluster <- data[, c("age", "size", "nodes", "pgr", "er")]
+
+data_escalados <- scale(data_cluster)
+```
+
+2.  Ejecución de K-means (k=3 grupos)
+
+```{r}
+set.seed(123)
+modelo_km <- kmeans(data_escalados, centers = 3, nstart = 25)
+```
+
+3.  Guardar el grupo en el dataset y graficar
+
+```{r}
+data$cluster_perfil <- as.factor(modelo_km$cluster)
+
+library(ggplot2)
+ggplot(data, aes(x = age, y = nodes, color = cluster_perfil)) +    geom_point(alpha = 0.6) + labs(title = "Clustering (No Supervisado): Perfiles de Pacientes", x = "Edad", y = "Nº Ganglios", color = "Grupo") + theme_minimal()
+```
+
+comentario!
+
+## 4.2. APRENDIZAJE SUPERVISADO (Regresión Logística)
+
+#### Objetivo: Predicción de recurrencia (Variable objetivo: censrec)
+
+1\. División Entrenamiento (80%) y Prueba (20%)
+```{r}
+set.seed(123)
+indices <- sample(1:nrow(data), 0.8 * nrow(data))
+train_data <- data[indices, ]
+test_data <- data[-indices, ]
+```
+
+2. Entrenamiento del modelo
+```{r}
+modelo_sup <- glm(censrec ~ age + size + grade + nodes + hormon, 
+                  data = train_data, 
+                  family = "binomial")
+```
+
+3\. Ver resultados de significancia (Los asteriscos)
+```{r}
+summary(modelo_sup)
+```
+
+4\. Predicción y Evaluación con el grupo de Prueba
+```{r}
+pred_prob <- predict(modelo_sup, newdata = test_data, type = "response")
+pred_clase <- ifelse(pred_prob > 0.5, 1, 0)
+```
+
+5\. Matriz de Confusión y Precisión
+```{r}
+matriz <- table(Real = test_data$censrec, Predicho = pred_clase)
+print("Matriz de Confusión:")
+print(matriz)
+
+accuracy <- sum(diag(matriz)) / sum(matriz)
+cat("\nPrecisión del modelo supervisado:", round(accuracy * 100, 2), "%\n")
+```
+
+# SECCIÓN 5. Visualización
+
+Aseguramos factores para la visualización
+
+```{r}
+data$censrec <- as.factor(data$censrec) 
+levels(data$censrec) <- c("Sin Recurrencia", "Recurrencia")
+data$hormon <- as.factor(data$hormon)
+```
+
+### 1. INTERFAZ DE USUARIO (UI)
+
+```{r}
+ui <- fluidPage(
+  
+  # Título y tema
+  theme = bslib::bs_theme(bootswatch = "flatly"), # Un toque de diseño moderno
+  titlePanel("Dashboard Clínico: Análisis de Riesgo en Cáncer de Mama"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      h4("Configuración del Gráfico"),
+      
+      # Selector para el Eje X
+      selectInput("var_x", "Variable Eje X:", 
+                  choices = c("Edad" = "age", 
+                              "Tamaño Tumor (mm)" = "size", 
+                              "Nº Ganglios" = "nodes",
+                              "Receptores Progesterona" = "pgr"),
+                  selected = "age"),
+      
+      # Selector para el Eje Y
+      selectInput("var_y", "Variable Eje Y:", 
+                  choices = c("Edad" = "age", 
+                              "Tamaño Tumor (mm)" = "size", 
+                              "Nº Ganglios" = "nodes",
+                              "Receptores Progesterona" = "pgr"),
+                  selected = "nodes"),
+      
+      hr(), # Línea separadora
+      
+      h4("Filtros de Pacientes"),
+      # Filtro por Tratamiento Hormonal
+      checkboxGroupInput("filtro_hormon", "Tratamiento Hormonal:",
+                         choices = levels(data$hormon),
+                         selected = levels(data$hormon)),
+      
+      # Nota informativa
+      helpText("Nota: El color de los puntos indica si hubo recurrencia (Rojo) o no (Azul).")
+    ),
+    
+    mainPanel(
+      # Pestañas para organizar la salida
+      tabsetPanel(
+        tabPanel("Visualización", plotOutput("grafico_dispersion")),
+        tabPanel("Datos Filtrados", dataTableOutput("tabla_data")),
+        tabPanel("Resumen Estadístico", verbatimTextOutput("resumen"))
+      )    )  ))
+```
+
+### 2. SERVIDOR (SERVER)
+
+```{r}
+server <- function(input, output) {
+  
+  # Dataset Reactivo: Se actualiza cuando cambias el filtro de hormonas
+  data_filtrados <- reactive({
+    data %>%
+      filter(hormon %in% input$filtro_hormon)  })
+  
+  # Gráfico: Se reconstruye automáticamente al cambiar variables
+  output$grafico_dispersion <- renderPlot({
+    
+    # Validar que haya datos para evitar errores si desmarcan todo
+    validate(
+      need(nrow(data_filtrados()) > 0, "Por favor, selecciona al menos un tipo de tratamiento.")    )
+    
+    ggplot(data_filtrados(), aes(x = .data[[input$var_x]], 
+                                  y = .data[[input$var_y]], 
+                                  color = censrec)) +
+      geom_point(alpha = 0.7, size = 3) +
+      geom_smooth(method = "lm", se = FALSE, linetype = "dashed") + # Línea de tendencia
+      scale_color_manual(values = c("Sin Recurrencia" = "#3498db", "Recurrencia" = "#e74c3c")) +
+      labs(title = paste("Relación entre", input$var_x, "y", input$var_y),
+           subtitle = "Segmentado por Recurrencia del evento",
+           color = "Estado",
+           x = input$var_x, y = input$var_y) +
+      theme_minimal() +
+      theme(legend.position = "bottom")  })
+  
+  # Tabla de datos
+  output$tabla_data <- renderDataTable({
+    data_filtrados()[, c("id", "age", "size", "nodes", "grade", "hormon", "censrec")]
+  }, options = list(pageLength = 10))
+  
+  # Resumen estadístico dinámico
+  output$resumen <- renderPrint({
+    summary(data_filtrados()[, c(input$var_x, input$var_y)])  })}
+```
+
+### 3. LANZAR LA APP
+
+```{r}
+shinyApp(ui = ui, server = server)
+```
+
+# SECCIÓN 6. Conclusiones

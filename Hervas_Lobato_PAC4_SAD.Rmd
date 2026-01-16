@@ -1,0 +1,516 @@
+---
+title: "PEC4"
+author: "Mario Hervás and Jorge Lobato"
+date: "2026-01-13"
+keywords: ["Análisis de Datos", "RMarkdown", "Interactivo"]
+lang: es
+output:
+  rmdformats::downcute:
+    self_contained: yes
+    thumbnails: no
+    downcute_theme: "chaos"
+    lightbox: yes
+    gallery: yes
+    highlight: tango
+    embed_fonts: yes
+---
+
+```{=html}
+<style>
+
+body {
+  font-family: 'Arial', sans-serif;
+  background-color: #E0F8E0;
+} 
+
+h1 {
+  color: #000080;
+  font-size: 2em;
+}
+
+h2 {
+  color: #000000;
+  font-size: 1.75em;
+}
+
+h3 {
+  color: #2C2C2C;
+  font-size: 1em;
+} 
+
+p {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.table {
+  width: 100%;
+  margin-bottom: 1rem;
+  color: #212529;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.75rem;
+  vertical-align: top;
+  border-top: 1px solid #dee2e6;
+}
+
+.table thead th {
+  vertical-align: bottom;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.table tbody + tbody {
+  border-top: 2px solid #dee2e6;
+}
+
+code {
+  background-color: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Librerias
+
+```{r}
+library(shiny)
+library(ggplot2)
+library(dplyr)
+```
+
+# Sección 1. Contexto y objetivo del estudio
+
+#### Para la realización de este trabajo se ha seleccionado el conjunto de datos German Breast Cancer Study Group (GBSG), disponible públicamente en el repositorio de bioestadística https://hbiostat.org/data/. Este conjunto de datos recoge información clínica y de seguimiento de pacientes con cáncer de mama, incluyendo variables demográficas, características del tumor, tratamiento hormonal y la ocurrencia de eventos de recurrencia o fallecimiento durante el seguimiento.
+
+#### La elección de este dataset se debe a su clara relevancia clínica y a su uso habitual en estudios de bioestadística, lo que lo convierte en un recurso adecuado para aplicar técnicas de análisis descriptivo, inferencial y de modelización. A partir de estos datos se plantean objetivos como el análisis de la distribución de variables clínicas relevantes, la exploración de asociaciones entre factores clínicos y la recurrencia de la enfermedad, y la evaluación de modelos estadísticos con fines exploratorios y predictivos.
+
+#### La referencia del conjunto de datos utilizado es: Therneau TM, Grambsch PM. Modeling Survival Data: Extending the Cox Model. Springer, 2000. Datos disponibles en https://hbiostat.org/data/
+
+
+# Sección 2. Prospección y preparación de los datos 
+## **2.1 Descripción de los datos**
+
+```{r} 
+## Descarga de datos 
+download.file(url = "https://hbiostat.org/data/repo/gbsg_ba_ca.dat", destfile = "gbsg_ba_ca.dat")
+
+## Carga de datos 
+data <- gbsg <- read.table("gbsg_ba_ca.dat", header = TRUE)
+
+## Descripción y transformación inicial de los datos 
+str(data)
+
+## Valores nulos 
+sum(is.na(data))
+
+## Conversión de variables a factor 
+data$meno   <- factor(tolower(data$meno))
+data$hormon <- factor(data$hormon)
+data$grade <- factor(data$grade)
+
+## Variables redundantes 
+all(data$X_d == data$censrec)
+
+## Variables que no aportan información relevante
+all(data$X_st == 1)
+all(data$X_t0 == 0)
+
+## Eliminación de variables prescindibles 
+data <- subset(data, select = -c(gradd1, gradd2, X_d))
+```
+
+#### El conjunto de datos analizado consta de 686 observaciones y 18 variables, correspondientes a pacientes con cáncer de mama. Las variables recogen información demográfica, clínica y de seguimiento, incluyendo la edad de las pacientes, características del tumor, tratamiento hormonal y el tiempo transcurrido hasta la recurrencia del evento o hasta la censura. El conjunto de datos incluye variables de distinta naturaleza: las variables cuantitativas son age, size, nodes, enodes, pgr, er, rectime y X_t, que representan medidas numéricas asociadas a características clínicas y al tiempo de seguimiento. Las variables categóricas son meno, hormon y grade, que describen el estado menopáusico, el tratamiento hormonal recibido y el grado histológico del tumor, respectivamente. La variable censrec es una variable binaria que indica la presencia o ausencia de recurrencia durante el seguimiento. Además, se incluyen variables técnicas relacionadas con la estructura temporal del seguimiento (X_st, X_t0).
+
+#### No se han detectado valores faltantes en ninguna de las variables, por lo que el conjunto de datos es completo y no requiere preprocesado adicional. Las variables categóricas meno, hormon y grade han sido tratadas como factores, reflejando correctamente su naturaleza cualitativa. Asimismo, se ha comprobado la existencia de variables redundantes asociadas a la codificación del grado tumoral (gradd1, gradd2) y al evento (X_d), que no aportan información adicional relevante y han sido eliminadas para simplificar el conjunto de datos. Del mismo modo, se observó que las variables X_t0 y X_st toman valores constantes (cero y uno, respectivamente), por lo que también se eliminaron.
+
+## **2.2 Preguntas “objetivo”**
+
+#### Pregunta 1: ¿Cómo se distribuyen las pacientes premenopáusicas y postmenopáusicas en función del grado histológico del tumor?
+
+#### Objetivo: Explorar si el estado menopáusico se asocia con distintos perfiles de agresividad tumoral.
+
+#### Pregunta 2: ¿Se observan diferencias en el número de ganglios linfáticos positivos según el grado histológico del tumor?
+
+#### Objetivo: Analizar la relación entre la agresividad del tumor y su grado de extensión ganglionar.
+
+#### Pregunta 3: ¿Cómo se relaciona el tamaño del tumor con el número de ganglios linfáticos positivos?
+
+#### Objetivo: Evaluar si tumores de mayor tamaño tienden a presentar una mayor afectación ganglionar.
+
+#### Pregunta 4: ¿Cómo varía el uso del tratamiento hormonal (tamoxifeno) según el tamaño del tumor, agrupado en franjas?
+Objetivo: Explorar si el tamaño tumoral se asocia con diferencias en la aplicación del tratamiento hormonal.
+
+# Sección 3. Análisis exploratorio de los datos
+
+## **3.1 Análisis descriptivo y gráfico**
+
+#### Análisis detallado de la variable 'age'
+
+```{r}
+mean_age <- mean(data$age)
+sd_age <- sd(data$age)
+range_age <- range(data$age)
+cat("Edad media:", mean_age, "\nDesviación típica:", sd_age, "\nRango:", range_age)
+```
+
+#### La edad media son $53.05$ años): Indica que la muestra se centra en mujeres en torno a la quinta década de vida. Es un dato coherente con la literatura médica sobre el cáncer de mama, donde la incidencia suele aumentar tras la menopausia. Desviación típica ($10.12$ años): Existe una dispersión moderada. Esto significa que la mayoría de las pacientes tienen edades comprendidas aproximadamente entre los $43$ y los $63$ años (media $\pm$ una desviación típica). No es un grupo excesivamente joven ni muy envejecido, sino bastante variado. Rango ($21$ a $80$ años): La amplitud es muy grande ($59$ años de diferencia). El estudio es inclusivo, ya que abarca desde adultos muy jóvenes hasta la tercera edad, lo que permite analizar cómo afecta la enfermedad en distintas etapas del ciclo vital.
+
+#### GRÁFICAS
+
+```{r}
+if (!require("ggplot2")) install.packages("ggplot2")
+#### ----------  Histograma edad
+ggplot(data, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(title = "Distribución de la Edad", x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+```
+
+#### El histograma muestra la distribución de la edad de las pacientes incluidas en el estudio. Se observa que la mayoría se concentra en edades medias, aproximadamente entre los 40 y 65 años, con un pico alrededor de la quinta y sexta décadas de vida. Las edades extremas son poco frecuentes, tanto en pacientes jóvenes como en las de mayor edad, lo que indica que la muestra está compuesta principalmente por pacientes adultas de mediana edad
+
+#### Diagrama barras: grado del tumor
+
+```{r}
+ggplot(data, aes(x = grade, fill = grade)) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Pacientes por Grado de Tumor", x = "Grado", y = "Nº de Pacientes") +
+  theme_light()
+```
+
+#### Este gráfico representa el número de pacientes según el grado histológico del tumor. Se observa claramente que el grado 2 es el más frecuente, concentrando la mayor parte de las pacientes del estudio, mientras que los grados 1 y 3 presentan una frecuencia notablemente menor. Esta distribución indica que la mayoría de los tumores analizados corresponden a un grado intermedio de agresividad
+
+#### Boxplot: recurrencia vs Hormon
+
+```{r}
+ggplot(data, aes(x = hormon, y = rectime, fill = hormon)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Impacto del Tratamiento Hormonal en la Recurrencia",
+       x = "Tratamiento (Tamoxifeno)", y = "Días hasta recurrencia") +
+  theme_classic()
+```
+
+#### El gráfico muestra la distribución del tiempo hasta la recurrencia (o censura) en función del tratamiento con tamoxifeno. Se observa que las pacientes que recibieron tratamiento hormonal presentan, en general, una mediana del tiempo hasta la recurrencia mayor que aquellas que no lo recibieron. Aunque existe una variabilidad considerable en ambos grupos, la distribución sugiere que el tratamiento con tamoxifeno podría estar asociado a un mayor tiempo libre de recurrencia. 
+
+#### Scatter plot: Tamaño vs Ganglios positivos 
+
+```{r}
+ggplot(data, aes(x = size, y = nodes)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Relación Tamaño del Tumor y Ganglios Afectados",
+       x = "Tamaño (mm)", y = "Nº de Ganglios") +
+  theme_minimal()
+```
+
+#### El diagrama de dispersión muestra la relación entre el tamaño del tumor y el número de ganglios linfáticos afectados. Se observa que a medida que aumenta el tamaño del tumor, tiende a incrementarse el número de ganglios positivos, aunque con una alta variabilidad entre pacientes. Para tamaños tumorales pequeños predominan valores bajos de afectación ganglionar, mientras que los tumores de mayor tamaño presentan una dispersión más amplia, incluyendo casos con un número elevado de ganglios afectados. La línea de tendencia refuerza esta asociación positiva, que debe interpretarse de forma descriptiva.
+
+## **3.2. Ejercicios de inferencia y simulación**
+
+#### a) 
+
+```{r}
+# a) Función: Clasificar riesgo clínico
+clasificar_riesgo <- function(size, nodes, umbral_size = 30, umbral_nodes = 3) {
+  ifelse(size > umbral_size & nodes > umbral_nodes, "Alto", "Bajo")
+}
+
+# Aplicar al dataset
+data$riesgo_clinico <- factor(
+  clasificar_riesgo(data$size, data$nodes),
+  levels = c("Bajo", "Alto")
+)
+
+# Distribución
+table(data$riesgo_clinico)
+prop.table(table(data$riesgo_clinico))
+```
+#### El objetivo de esta función es clasificar a las pacientes según su riesgo clínico a partir de dos variables relevantes del conjunto de datos, el tamaño del tumor y el número de ganglios linfáticos afectados.
+
+#### Al aplicar la función al conjunto de datos, se observa que 553 pacientes (80.6 %) se clasifican como riesgo bajo, mientras que 133 pacientes (19.4 %) se clasifican como riesgo alto. Estos resultados indican que la mayoría de las pacientes no presentan simultáneamente ambos factores de riesgo considerados, aunque existe un subgrupo relevante con un perfil clínico potencialmente más desfavorable.
+
+#### b) 
+#### Enunciado 1: Probabilidad marginal del evento
+
+```{r}
+p_evento <- mean(data$censrec == 1)
+p_evento
+```
+
+#### La probabilidad de que una paciente presente el evento durante el seguimiento  se estima como la proporción de pacientes con censrec = 1 en la muestra. En este caso, el valor obtenido es p = 0.4359, lo que significa que aproximadamente un 43.6% de las pacientes del conjunto de datos presentaron el evento observado.
+
+#### Enunciado 2: Probabilidad condicional según tratamiento hormonal
+
+```{r}
+# tabla de probabilidades condicionales 
+tab <- table(data$hormon, data$censrec)
+tab
+
+p_evento_cond <- prop.table(tab, margin = 1)  # por filas (condicionado a hormon)
+p_evento_cond
+```
+
+#### Se ha calculado la probabilidad del evento (censrec = 1) condicionada al tratamiento hormonal recibido. Los resultados muestran que, entre las pacientes que recibieron tamoxifeno, la probabilidad de presentar el evento es 0.382 (38.2%), mientras que entre aquellas que no recibieron tratamiento hormonal, la probabilidad asciende a 0.466 (46.6%). Estos valores indican que la proporción de pacientes con recurrencia es menor en el grupo tratado con tamoxifeno en comparación con el grupo sin tratamiento hormonal.
+
+#### Enunciado 3: Probabilidad condicional con criterio clínico (tamaño + ganglios)
+
+```{r}
+cond_alto <- data$size > 30 & data$nodes > 3
+
+p_evento_alto <- mean(data$censrec == 1 & cond_alto) / mean(cond_alto)
+p_evento_alto
+
+# Comparación con el resto
+p_evento_bajo <- mean(data$censrec == 1 & !cond_alto) / mean(!cond_alto)
+p_evento_bajo
+```
+
+#### Se ha estimado la probabilidad de recurrencia condicionada a un criterio clínico de alto riesgo, definido por la presencia simultánea de un tumor de tamaño superior a 30 mm y más de 3 ganglios linfáticos afectados. Los resultados muestran que la probabilidad del evento en este grupo es 0.617 (61.7%), mientras que en el resto de pacientes la probabilidad desciende a 0.392 (39.2%).
+
+#### Esta diferencia indica que las pacientes que cumplen el criterio de alto riesgo presentan una mayor proporción de recurrencia en comparación con aquellas que no lo cumplen.
+
+#### c) 
+#### Enunciado: Simulación Monte Carlo, eventos esperados en una cohorte hipotética
+
+```{r}
+set.seed(123)
+
+# Parámetro: probabilidad empírica del evento
+p <- mean(data$censrec == 1)
+
+# Simulación: 10.000 cohortes de n=100 pacientes
+B <- 10000
+n <- 100
+eventos_sim <- rbinom(B, size = n, prob = p)
+
+# Resumen de la simulación
+summary(eventos_sim)
+
+# Probabilidad de >= 40 eventos en 100 pacientes
+prob_ge_40 <- mean(eventos_sim >= 40)
+prob_ge_40
+
+# (Opcional) Visualización rápida
+hist(eventos_sim, breaks = 30, main = "Simulación: nº de eventos en 100 pacientes",
+     xlab = "Número de eventos (censrec=1)")
+abline(v = 40, lty = 2)
+```
+
+#### Se ha planteado un escenario en el que se reclutan 100 pacientes con la misma probabilidad de evento observada en el conjunto de datos (p ≈ 0.436). Bajo este supuesto, se simularon 10.000 cohortes de 100 pacientes mediante una distribución binomial, obteniendo en cada simulación el número total de eventos (censrec = 1). El resumen de la simulación indica que el número de eventos esperado se concentra alrededor de valores próximos a 44 eventos por cada 100 pacientes, con una dispersión moderada: en la mayoría de simulaciones el número de eventos se sitúa aproximadamente entre 40 y 47, y los valores extremos observados oscilan entre 25 y 64 eventos. El histograma muestra una distribución aproximadamente simétrica centrada en torno a ese valor medio, reflejando la variabilidad natural esperable por azar entre cohortes incluso si la probabilidad individual de evento se mantiene constante.
+
+#### Además, se ha estimado la probabilidad de observar al menos 40 eventos en una cohorte de 100 pacientes, resultando 0.7906, lo que significa que, bajo este modelo, existe aproximadamente un 79.1% de probabilidad de obtener 40 o más eventos en 100 pacientes
+
+# SECCIÓN 4: Modelos de aprendizaje automático
+
+#### Conviene realizar un enfoque mixto que combine ambos modelos porque la información que ofrecen es complementaria. El supervisado es conveniente porque disponemos de una variable objetivo etiquetada (censrec), que indica si la paciente sufrió recurrencia o fallecimiento. Podemos usarlo para entrenar un modelo a predecir este resultado en nuevas pacientes en función de sus características clínicas.
+
+#### El no supervisado es fundamental para el descubrimiento de patrones ocultos en los datos. Permite segmentar los pacientes en grupos con perfiles clínicos similares. Esto es clave para la personalización de tratamientos e identificación de grupos de riesgo
+
+#### La elección se justifica por la naturaleza del problema médico: - Predicción. para cuantificar el riesgo individual de cada paciente (supervisado); Exploración. para entender si existen subgrupos que requieran protocolos diferentes (no supervisado)
+
+## **4.1. APRENDIZAJE NO SUPERVISADO (K-means)**
+
+#### Objetivo: Agrupar pacientes por similitud biológica
+
+#### 1. Selección y escalado de variables numéricas
+
+```{r}
+data_cluster <- data[, c("age", "size", "nodes", "pgr", "er")]
+
+data_escalados <- scale(data_cluster)
+```
+
+#### 2.  Ejecución de K-means (k=3 grupos)
+
+```{r}
+set.seed(123)
+modelo_km <- kmeans(data_escalados, centers = 3, nstart = 25)
+```
+
+#### 3.  Guardar el grupo en el dataset y graficar
+
+```{r}
+data$cluster_perfil <- as.factor(modelo_km$cluster)
+
+library(ggplot2)
+ggplot(data, aes(x = age, y = nodes, color = cluster_perfil)) +    geom_point(alpha = 0.6) + labs(title = "Clustering (No Supervisado): Perfiles de Pacientes", x = "Edad", y = "Nº Ganglios", color = "Grupo") + theme_minimal()
+```
+
+#### En la representación gráfica se observa un solapamiento general entre los tres grupos, aunque cada uno presenta patrones dominantes distintos. El grupo 3 se distribuye principalmente a lo largo del eje de la edad, manteniendo valores bajos de afectación ganglionar, lo que sugiere que su diferenciación visual está más asociada a la edad que al número de ganglios. Por el contrario, el grupo 2 presenta una mayor dispersión vertical y concentra los valores más elevados de ganglios afectados, indicando que este grupo está más condicionado por la afectación ganglionar que por la edad. El grupo 1 ocupa una posición intermedia, con pacientes de edades medias y una afectación ganglionar baja a moderada. En conjunto, el gráfico sugiere perfiles parcialmente diferenciados, pero con fronteras muy difusas al considerar solo estas dos variables.
+
+## **4.2. APRENDIZAJE SUPERVISADO (Regresión Logística)**
+
+#### Objetivo: Predicción de recurrencia (Variable objetivo: censrec)
+
+#### 1. División Entrenamiento (80%) y Prueba (20%)
+
+```{r}
+set.seed(123)
+indices <- sample(1:nrow(data), 0.8 * nrow(data))
+train_data <- data[indices, ]
+test_data <- data[-indices, ]
+```
+
+#### 2. Entrenamiento del modelo
+
+```{r}
+modelo_sup <- glm(censrec ~ age + size + grade + nodes + hormon, 
+                  data = train_data, 
+                  family = "binomial")
+```
+
+#### 3. Ver resultados de significancia (Los asteriscos)
+
+```{r}
+summary(modelo_sup)
+```
+
+#### El modelo supervisado de regresión logística se ha construido para predecir la recurrencia o fallecimiento de las pacientes a partir de variables clínicas disponibles. El resumen del modelo muestra que el número de ganglios linfáticos afectados presenta un coeficiente positivo y altamente significativo, lo que indica que, a medida que aumenta la afectación ganglionar, se incrementa de forma clara la probabilidad de recurrencia. De forma similar, los tumores de grado histológico 2 y 3 presentan coeficientes positivos y significativos en comparación con el grado 1, lo que sugiere que una mayor agresividad tumoral se asocia con un mayor riesgo del evento. En el caso del tratamiento hormonal, el coeficiente asociado a no recibir tamoxifeno es positivo y significativo, indicando que la ausencia de tratamiento hormonal se relaciona con una mayor probabilidad de recurrencia, lo que apunta a un posible efecto protector del tamoxifeno. Por el contrario, la edad y el tamaño del tumor no resultan significativos en este modelo, lo que indica que, una vez consideradas las variables relacionadas con la agresividad y la extensión tumoral, su aportación adicional a la predicción es limitada.
+
+#### 4. Predicción y Evaluación con el grupo de Prueba
+
+```{r}
+pred_prob <- predict(modelo_sup, newdata = test_data, type = "response")
+pred_clase <- ifelse(pred_prob > 0.5, 1, 0)
+```
+
+#### 5. Matriz de Confusión y Precisión
+
+```{r}
+matriz <- table(Real = test_data$censrec, Predicho = pred_clase)
+print("Matriz de Confusión:")
+print(matriz)
+
+accuracy <- sum(diag(matriz)) / sum(matriz)
+cat("\nPrecisión del modelo supervisado:", round(accuracy * 100, 2), "%\n")
+```
+
+#### La evaluación del modelo sobre el conjunto de prueba se ha realizado mediante una matriz de confusión, que permite comparar los valores reales de recurrencia con los valores predichos por el modelo. Los resultados muestran que el modelo clasifica correctamente una parte relevante de las pacientes sin recurrencia y también identifica correctamente algunos casos con recurrencia, aunque presenta errores tanto en forma de falsos positivos (14) como de falsos negativos (34). La precisión global obtenida es del 65.22 %, lo que indica una capacidad predictiva moderada, superior al azar pero insuficiente para un uso clínico directo. Además desde el punto de vista clínico, la mayor presencia de falsos negativos supone una limitación relevante, ya que implica que el modelo no identifica a algunas pacientes que finalmente presentan recurrencia, lo que reduce su utilidad como herramienta de apoyo a la toma de decisiones clínicas.
+
+# SECCIÓN 5. Visualización
+
+#### La visualización se ha diseñado como una herramienta interactiva para explorar de forma gráfica las relaciones entre variables clínicas del conjunto de datos. Permite seleccionar dinámicamente las variables representadas en los ejes del gráfico y filtrar a las pacientes según el tratamiento hormonal recibido, facilitando la comparación visual entre pacientes con y sin recurrencia. El diagrama de dispersión, junto con la línea de tendencia, ayuda a identificar patrones generales y posibles asociaciones entre variables, mientras que la tabla y el resumen estadístico complementan la interpretación mostrando la información numérica de los datos filtrados.
+
+#### Aseguramos factores para la visualización
+
+```{r}
+data$censrec <- as.factor(data$censrec) 
+levels(data$censrec) <- c("Sin Recurrencia", "Recurrencia")
+data$hormon <- as.factor(data$hormon)
+```
+
+#### 1. INTERFAZ DE USUARIO (UI)
+
+```{r, eval=FALSE}
+ui <- fluidPage(
+  
+  # Título y tema
+  theme = bslib::bs_theme(bootswatch = "flatly"), # Un toque de diseño moderno
+  titlePanel("Dashboard Clínico: Análisis de Riesgo en Cáncer de Mama"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      h4("Configuración del Gráfico"),
+      
+      # Selector para el Eje X
+      selectInput("var_x", "Variable Eje X:", 
+                  choices = c("Edad" = "age", 
+                              "Tamaño Tumor (mm)" = "size", 
+                              "Nº Ganglios" = "nodes",
+                              "Receptores Progesterona" = "pgr"),
+                  selected = "age"),
+      
+      # Selector para el Eje Y
+      selectInput("var_y", "Variable Eje Y:", 
+                  choices = c("Edad" = "age", 
+                              "Tamaño Tumor (mm)" = "size", 
+                              "Nº Ganglios" = "nodes",
+                              "Receptores Progesterona" = "pgr"),
+                  selected = "nodes"),
+      
+      hr(), # Línea separadora
+      
+      h4("Filtros de Pacientes"),
+      # Filtro por Tratamiento Hormonal
+      checkboxGroupInput("filtro_hormon", "Tratamiento Hormonal:",
+                         choices = levels(data$hormon),
+                         selected = levels(data$hormon)),
+      
+      # Nota informativa
+      helpText("Nota: El color de los puntos indica si hubo recurrencia (Rojo) o no (Azul).")
+    ),
+    
+    mainPanel(
+      # Pestañas para organizar la salida
+      tabsetPanel(
+        tabPanel("Visualización", plotOutput("grafico_dispersion")),
+        tabPanel("Datos Filtrados", dataTableOutput("tabla_data")),
+        tabPanel("Resumen Estadístico", verbatimTextOutput("resumen"))
+      )    )  ))
+```
+
+#### 2. SERVIDOR (SERVER)
+
+```{r, eval=FALSE}
+server <- function(input, output) {
+  
+  # Dataset Reactivo: Se actualiza cuando cambias el filtro de hormonas
+  data_filtrados <- reactive({
+    data %>%
+      filter(hormon %in% input$filtro_hormon)  })
+  
+  # Gráfico: Se reconstruye automáticamente al cambiar variables
+  output$grafico_dispersion <- renderPlot({
+    
+    # Validar que haya datos para evitar errores si desmarcan todo
+    validate(
+      need(nrow(data_filtrados()) > 0, "Por favor, selecciona al menos un tipo de tratamiento.")    )
+    
+    ggplot(data_filtrados(), aes(x = .data[[input$var_x]], 
+                                  y = .data[[input$var_y]], 
+                                  color = censrec)) +
+      geom_point(alpha = 0.7, size = 3) +
+      geom_smooth(method = "lm", se = FALSE, linetype = "dashed") + 
+      scale_color_manual(values = c("Sin Recurrencia" = "#3498db", "Recurrencia" = "#e74c3c")) +
+      labs(title = paste("Relación entre", input$var_x, "y", input$var_y),
+           subtitle = "Segmentado por Recurrencia del evento",
+           color = "Estado",
+           x = input$var_x, y = input$var_y) +
+      theme_minimal() +
+      theme(legend.position = "bottom")  })
+  
+  # Tabla de datos
+  output$tabla_data <- renderDataTable({
+    data_filtrados()[, c("id", "age", "size", "nodes", "grade", "hormon", "censrec")]
+  }, options = list(pageLength = 10))
+  
+  # Resumen estadístico dinámico
+  output$resumen <- renderPrint({
+    summary(data_filtrados()[, c(input$var_x, input$var_y)])  })}
+```
+
+#### 3. LANZAR LA APP
+
+```{r, eval=FALSE}
+shinyApp(ui = ui, server = server)
+```
+
+#### CAPTURAS DE LA APP 
+
+![](png_app_1.png)
+![](png_app_2.png)
+![](png_app_3.png)
+
+# Sección 6. Conclusiones
+
+#### El análisis realizado sobre el conjunto de datos del German Breast Cancer Study Group ha permitido identificar patrones clínicos relevantes mediante el uso combinado de técnicas de aprendizaje supervisado y no supervisado. A continuación, se detallan los hallazgos principales:1. Identificación de Factores de Riesgo (Modelo Supervisado)El modelo de Regresión Logística ha revelado que la afectación ganglionar (nodes) es el predictor más determinante de la recurrencia ($p < 0.001$). A diferencia de lo que podría intuirse inicialmente, variables como el tamaño del tumor (size) o la edad (age) no mostraron significancia estadística independiente en este modelo multivariante. Esto sugiere que la extensión linfática de la enfermedad es un factor pronóstico más crítico que la masa tumoral por sí misma.2. Impacto del TratamientoSe ha confirmado estadísticamente la eficacia del tratamiento hormonal. La variable asociada al tamoxifeno resultó significativa, validando que el uso de esta terapia actúa como un factor de protección relevante frente a la recurrencia del evento.3. Perfilado de Pacientes (Clustering)La segmentación mediante el algoritmo K-Means (basada en los centroides obtenidos) permitió distinguir tres perfiles claros de pacientes, lo cual facilita la estratificación del riesgo:Grupo 1 (Perfil Hormonal): Pacientes de mayor edad caracterizadas por una alta expresión de receptores hormonales (er y pgr elevados), lo que generalmente se asocia a una mejor respuesta al tratamiento.Grupo 2 (Alto Riesgo): Este grupo presenta las características más desfavorables, combinando tumores de gran tamaño (valor escalado 1.34) con una alta carga ganglionar (1.23).Grupo 3 (Estadio Inicial/Joven): Pacientes más jóvenes, con tumores de menor tamaño y baja afectación ganglionar, aunque con niveles menores de receptores hormonales.4. Evaluación del ModeloEl modelo predictivo alcanzó una precisión global (Accuracy) del 65.22%. El análisis de la matriz de confusión muestra que el modelo es conservador: presenta una alta especificidad (identifica bien a los pacientes que no recaerán), pero una sensibilidad moderada. Esto indica que, si bien es una herramienta de apoyo útil, debe complementarse con otros marcadores clínicos para no subestimar casos de riesgo
+
+#### El estudio concluye que el número de ganglios afectados y el grado histológico son las variables críticas para el pronóstico. La implementación de herramientas visuales interactivas (como la propuesta en Shiny) resulta fundamental para trasladar estos modelos matemáticos a la práctica clínica y facilitar la toma de decisiones.
